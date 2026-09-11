@@ -40,7 +40,9 @@ customer auto replies (`auto`, shadow-only in the MVP). Python 3.13 + FastAPI.
 ## Tests
 
 - Unit tests make **no network calls**. Use `FakeLLM`, `FakeEmbedder`, `FakeMainBackend`.
-- HTTP clients are tested with `respx`.
+- Our `httpx` clients (connectors, embedder) are tested with `respx`. The `openai` SDK (>=3)
+  uses `httpx2`, which respx does not patch: inject
+  `http_client=httpx2.AsyncClient(transport=httpx2.MockTransport(handler))` instead.
 - Tests that need Postgres are marked `@pytest.mark.db` and skip when the DB is unreachable.
 - Table-driven tests for normalization, guardrails and post-processing, with Persian digits.
 

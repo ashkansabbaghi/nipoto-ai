@@ -1,0 +1,48 @@
+# Local stack for nipoto-ai. Works with `docker compose` and `podman-compose` (make up).
+# In environments where ghcr.io / huggingface.co are blocked or slow, mirror the images and
+# weights into registry.local:80 and set EMBEDDINGS_IMAGE / HF_ENDPOINT (see T0.5 notes).
+
+services:
+  db:
+    image: docker.io/pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: nipoto
+      POSTGRES_PASSWORD: nipoto
+      POSTGRES_DB: nipoto_ai
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nipoto -d nipoto_ai"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # D4: embeddings run in a sidecar with an OpenAI-compatible /v1/embeddings endpoint,
+  # so the app stays free of torch. TEI CPU build, BAAI/bge-m3 (1024-dim).
+  # Weights are loaded from a local directory (no network inside the container):
+  #   uvx --from huggingface_hub hf download BAAI/bge-m3 --local-dir .models/bge-m3 \
+  #     --include "*.json" "sentencepiece.bpe.model" "pytorch_model.bin"
+  # On servers, point EMBEDDINGS_MODEL_DIR at the mirrored copy.
+  embeddings:
+    image: ${EMBEDDINGS_IMAGE:-ghcr.io/huggingface/text-embeddings-inference:cpu-1.9}
+    command:
+      - --model-id=/models/bge-m3
+      - --served-model-name=BAAI/bge-m3
+      - --max-client-batch-size=64
+      - --max-batch-tokens=16384
+    environment:
+      HF_HUB_OFFLINE: "1"
+    ports:
+      - "8081:80"
+    volumes:
+      - ${EMBEDDINGS_MODEL_DIR:-./.models/bge-m3}:/models/bge-m3:ro,z
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 60
+
+volumes:
+  pgdata:

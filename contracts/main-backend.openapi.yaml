@@ -1,0 +1,489 @@
+# Contract: what nipoto-ai needs from the main backend REST API (AI-SERVICE.fa.md §7.2).
+#
+# Status per row of §7.2. Fill "exists?" in the meeting with the backend team (T0.4):
+#
+#   | #       | endpoint                                        | phase    | exists?  | notes |
+#   |---------|-------------------------------------------------|----------|----------|-------|
+#   | B-AI-1  | POST /auth/ai-token, GET /.well-known/jwks.json | post-mvp | TBD      |       |
+#   | B-AI-2  | GET  /conversations/{id}                        | MVP      | TBD      |       |
+#   | B-AI-3  | GET  /conversations/{id}/messages?limit=N       | MVP      | TBD      |       |
+#   | B-AI-4  | GET  /kb/items?updated_since=                   | post-mvp | TBD      |       |
+#   | B-AI-5  | POST /conversations/{id}/messages (assistant)   | post-mvp | TBD      |       |
+#   | B-AI-6  | POST /conversations/{id}/handoff                | post-mvp | TBD      |       |
+#   | B-AI-7  | `handledBy` state + which conversations start   | post-mvp | TBD      |       |
+#   |         | with the assistant                              |          |          |       |
+#   | B-AI-8  | GET /me/orders, GET /me/account (on behalf of)  | post-mvp | TBD      |       |
+#
+# Meeting: date TBD, attendees TBD. Decisions: TBD.
+#
+# Field names follow the existing backend style (camelCase, see new-support
+# `domain/conversation.ts`, `domain/message.ts`). New fields: `handledBy`, `authorKind`.
+openapi: 3.1.0
+info:
+  title: Main backend API for nipoto-ai
+  version: 0.1.0
+  description: |
+    Endpoints the main backend exposes to the nipoto-ai service. nipoto-ai uses REST only
+    (never the socket protocol) and never reads the backend database (principle AI-1).
+
+    ## Authentication and "on behalf of" (§6.3)
+
+    Every call carries two identities:
+
+    1. **The caller**: nipoto-ai's own service credential in `Authorization: Bearer …`.
+       It is valid only on the endpoints in this file.
+    2. **The acting user**: `X-On-Behalf-Of-Sub` and `X-On-Behalf-Of-Role`, copied from a JWT
+       that nipoto-ai has already verified. nipoto-ai never sends an identity that did not come
+       from a verified token.
+
+    The backend applies **its own access rules for the acting user**. nipoto-ai does not decide
+    whether a conversation belongs to someone; it asks (principle AI-2). When B-AI-1 exists,
+    nipoto-ai also forwards the original token in `X-On-Behalf-Of-Token` so the backend can
+    verify it itself instead of trusting the service.
+
+    ## Access rules expected from the backend
+
+    | acting role | conversations visible |
+    |---|---|
+    | `user`  | only conversations where `userId == sub` |
+    | `guest` | only the guest's own conversation |
+    | `staff` | whatever the staff member may see in the staff panel |
+
+    A conversation that does not exist **or** is not visible to the acting user returns `404`
+    with code `conversation_not_found`, so existence is not leaked.
+
+    ## Errors
+
+    `application/problem+json` (RFC 9457) with a stable `code`.
+
+    ## Timeouts
+
+    nipoto-ai uses a 2 s timeout and retries GETs only. Endpoints should answer well within that.
+  x-owner: nipoto-ai (Ashkan)
+servers:
+  - url: "{baseUrl}"
+    variables:
+      baseUrl:
+        default: https://api.nipoto.com/ai-gateway
+        description: Configured in nipoto-ai as MAIN_BACKEND_URL. Final prefix is up to the backend.
+
+security:
+  - aiServiceToken: []
+
+tags:
+  - name: mvp
+    description: Needed for the MVP (B-AI-2, B-AI-3).
+  - name: post-mvp
+    description: Needed after the MVP (phase 5 and 6). Shape is a proposal.
+
+paths:
+  /conversations/{conversationId}:
+    get:
+      operationId: getConversation
+      summary: B-AI-2. Conversation owner, status and handledBy
+      tags: [mvp]
+      x-bai: B-AI-2
+      x-phase: mvp
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/OnBehalfOfSub"
+        - $ref: "#/components/parameters/OnBehalfOfRole"
+        - $ref: "#/components/parameters/OnBehalfOfToken"
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: The conversation, visible to the acting user.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Conversation" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ConversationNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/Upstream" }
+
+  /conversations/{conversationId}/messages:
+    get:
+      operationId: getMessages
+      summary: B-AI-3. Last N messages of one conversation, with author kind
+      tags: [mvp]
+      x-bai: B-AI-3
+      x-phase: mvp
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - name: limit
+          in: query
+          required: false
+          description: Number of most recent messages to return.
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+        - $ref: "#/components/parameters/OnBehalfOfSub"
+        - $ref: "#/components/parameters/OnBehalfOfRole"
+        - $ref: "#/components/parameters/OnBehalfOfToken"
+        - $ref: "#/components/parameters/RequestId"
+      responses:
+        "200":
+          description: |
+            The **most recent** `limit` messages, sorted **oldest first** (ascending `sentAt`).
+            Internal staff notes, if the backend has them, are **not** included.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Message" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ConversationNotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "5XX": { $ref: "#/components/responses/Upstream" }
+
+    post:
+      operationId: postAssistantMessage
+      summary: B-AI-5. Write the assistant's final reply into the conversation
+      tags: [post-mvp]
+      x-bai: B-AI-5
+      x-phase: post-mvp
+      description: |
+        Writes a message with `authorKind: assistant`. Idempotent on `Idempotency-Key`
+        (= the customer's trigger message id): a replay returns the same message with `200`.
+        The backend re-checks `handledBy == assistant` atomically with the write; if a staff
+        member took the conversation meanwhile, it rejects with `409 not_handled_by_assistant`
+        and nothing is written (§4.2 rule 3).
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, maxLength: 128 }
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text, authorKind]
+              properties:
+                text: { type: string, maxLength: 4000 }
+                authorKind: { type: string, const: assistant }
+                stopped:
+                  type: boolean
+                  default: false
+                  description: The text is partial because the customer cancelled (§5.2).
+                meta:
+                  type: object
+                  description: Opaque to the backend; e.g. request_id, citations, links.
+                  additionalProperties: true
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageRef" }
+        "200":
+          description: Idempotent replay; the message already exists.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MessageRef" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ConversationNotFound" }
+        "409":
+          description: "`not_handled_by_assistant`: a staff member took over."
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+        "5XX": { $ref: "#/components/responses/Upstream" }
+
+  /conversations/{conversationId}/handoff:
+    post:
+      operationId: handoff
+      summary: B-AI-6. Hand the conversation to staff
+      tags: [post-mvp]
+      x-bai: B-AI-6
+      x-phase: post-mvp
+      description: |
+        Sets `handledBy = staff`, posts a system message and puts the conversation in the staff
+        queue. Idempotent: calling it on a conversation already handled by staff returns `204`.
+      parameters:
+        - $ref: "#/components/parameters/ConversationId"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum: [user_request, deny_topic, low_confidence, turn_limit, error]
+      responses:
+        "204": { description: Handed off (or already handled by staff). }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/ConversationNotFound" }
+        "5XX": { $ref: "#/components/responses/Upstream" }
+
+  /kb/items:
+    get:
+      operationId: listKbItems
+      summary: B-AI-4. FAQ and help docs from the knowledge source
+      tags: [post-mvp]
+      x-bai: B-AI-4
+      x-phase: post-mvp
+      description: Until this exists, knowledge is imported manually (`POST /v1/admin/kb/import`).
+      parameters:
+        - name: updated_since
+          in: query
+          required: false
+          schema: { type: string, format: date-time }
+        - name: cursor
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        "200":
+          description: Changed items since `updated_since`, including tombstones for deletions.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/KbItem" }
+                  next_cursor: { type: [string, "null"] }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /me/orders:
+    get:
+      operationId: getRecentOrders
+      summary: B-AI-8. Recent orders of the acting user (allowlisted fields)
+      tags: [post-mvp]
+      x-bai: B-AI-8
+      x-phase: post-mvp
+      description: |
+        The user comes **only** from `X-On-Behalf-Of-Sub`; there is no user id parameter
+        (principle AI-3). Never available for `guest`.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 5, default: 3 }
+        - $ref: "#/components/parameters/OnBehalfOfSub"
+        - $ref: "#/components/parameters/OnBehalfOfRole"
+        - $ref: "#/components/parameters/OnBehalfOfToken"
+      responses:
+        "200":
+          description: Orders, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/OrderSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: "`forbidden`: role not allowed (e.g. guest)."
+          content:
+            application/problem+json:
+              schema: { $ref: "#/components/schemas/Problem" }
+
+  /auth/ai-token:
+    post:
+      operationId: issueAiToken
+      summary: B-AI-1. Issue a short-lived JWT for nipoto-ai (called by frontends)
+      tags: [post-mvp]
+      x-bai: B-AI-1
+      x-phase: post-mvp
+      description: |
+        Called by the frontend with its normal backend session (cookie). Returns an RS256 JWT
+        with `aud = nipoto-ai`, `exp = 10 min`, `sub`, `role` (user | staff | guest).
+        Guest tokens are issued only for requests from allowed origins (§6.2).
+        This endpoint uses the frontend session, not the AI service credential.
+      security: []
+      responses:
+        "200":
+          description: Token issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token, expiresAt]
+                properties:
+                  token: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /.well-known/jwks.json:
+    get:
+      operationId: getJwks
+      summary: B-AI-1. Public keys to verify AI tokens
+      tags: [post-mvp]
+      x-bai: B-AI-1
+      x-phase: post-mvp
+      security: []
+      responses:
+        "200":
+          description: JWK set (RFC 7517). nipoto-ai caches it.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [keys]
+                properties:
+                  keys:
+                    type: array
+                    items: { type: object, additionalProperties: true }
+
+components:
+  securitySchemes:
+    aiServiceToken:
+      type: http
+      scheme: bearer
+      description: nipoto-ai's service credential. Valid only on the endpoints in this file.
+
+  parameters:
+    ConversationId:
+      name: conversationId
+      in: path
+      required: true
+      schema: { type: string }
+    OnBehalfOfSub:
+      name: X-On-Behalf-Of-Sub
+      in: header
+      required: true
+      description: "`sub` of the verified nipoto-ai JWT."
+      schema: { type: string }
+    OnBehalfOfRole:
+      name: X-On-Behalf-Of-Role
+      in: header
+      required: true
+      description: "`role` of the verified nipoto-ai JWT."
+      schema: { type: string, enum: [user, staff, guest] }
+    OnBehalfOfToken:
+      name: X-On-Behalf-Of-Token
+      in: header
+      required: false
+      x-phase: post-mvp
+      description: The original nipoto-ai JWT, once B-AI-1 exists, so the backend can verify it.
+      schema: { type: string }
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: false
+      description: nipoto-ai request id, for correlating logs.
+      schema: { type: string }
+
+  responses:
+    Unauthorized:
+      description: "`unauthorized`: bad or missing service credential."
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    ConversationNotFound:
+      description: "`conversation_not_found`: does not exist or not visible to the acting user."
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    RateLimited:
+      description: "`rate_limited`."
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+    Upstream:
+      description: Backend error. nipoto-ai hands off (`auto`) or returns an error (`draft`).
+      content:
+        application/problem+json:
+          schema: { $ref: "#/components/schemas/Problem" }
+
+  schemas:
+    Problem:
+      type: object
+      required: [type, title, status, code]
+      properties:
+        type: { type: string, default: about:blank }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        code:
+          type: string
+          description: Stable machine-readable code.
+          examples: [conversation_not_found, unauthorized, forbidden, rate_limited,
+                     not_handled_by_assistant, internal]
+
+    Conversation:
+      type: object
+      required: [id, userId, status, handledBy]
+      properties:
+        id: { type: string }
+        userId:
+          type: string
+          description: Owner (customer or guest id).
+        status:
+          type: string
+          enum: [queued, opened, closed]
+        handledBy:
+          type: string
+          enum: [assistant, staff]
+          description: |
+            B-AI-7. Who currently answers the customer. New conversations start as `assistant`
+            only where the backend rule says so (e.g. site widget, working hours); otherwise
+            `staff`. Transitions: `assistant → staff` on handoff or when staff takes over.
+            Never `staff → assistant` automatically.
+        departmentId: { type: [string, "null"] }
+        staffId: { type: [string, "null"] }
+        title: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    Message:
+      type: object
+      required: [id, authorKind, text, sentAt]
+      properties:
+        id: { type: string }
+        conversationId: { type: string }
+        authorKind:
+          type: string
+          enum: [user, staff, assistant, system]
+          description: New field. `user` also covers guests.
+        authorId: { type: [string, "null"] }
+        text:
+          type: string
+          description: Plain text (HTML stripped). Attachments are not sent, only flagged.
+        hasAttachment: { type: boolean, default: false }
+        sentAt: { type: string, format: date-time }
+
+    MessageRef:
+      type: object
+      required: [id]
+      properties:
+        id: { type: string }
+
+    KbItem:
+      type: object
+      required: [id, type, visibility, updatedAt]
+      properties:
+        id: { type: string }
+        type: { type: string, enum: [faq, doc] }
+        visibility: { type: string, enum: [public, internal] }
+        title: { type: string }
+        body: { type: string, description: HTML or markdown. }
+        url: { type: [string, "null"] }
+        updatedAt: { type: string, format: date-time }
+        deleted: { type: boolean, default: false, description: Tombstone. }
+
+    OrderSummary:
+      type: object
+      description: Allowlisted fields only (§7.1). Dates pre-formatted in Jalali.
+      required: [id, status, createdAtJalali]
+      properties:
+        id: { type: string }
+        status: { type: string }
+        createdAtJalali: { type: string, examples: ["۱۴۰۵/۰۶/۱۲"] }
+        lastEvent: { type: [string, "null"] }
+        lastEventAtJalali: { type: [string, "null"] }
