@@ -1,0 +1,19 @@
+---
+description: nipoto-ai service rules (principles, module boundaries, tests)
+globs:
+alwaysApply: true
+---
+
+Read `CLAUDE.md` first; it is the single source for these rules. Summary:
+
+- Design doc: `AI-SERVICE.fa.md` (§n). Plan and tasks: `MVP-PLAN.fa.md` (T<m>.<n>, D<n>).
+- Implement one task at a time; stay inside its "files" list; `make lint test` must be green;
+  check every acceptance criterion at the end.
+- AI-1..AI-7 are mandatory. In particular:
+  - only `app/connectors/` calls the main backend;
+  - `app/pipeline/` never names a provider/model, it uses routes from `config/routes.yaml`;
+  - `search(query, actor)` always applies the visibility filter, derived from the actor role;
+  - `user_id` only from `Actor` (verified JWT), never from body or model output.
+- Normalize Persian text on both ingest and query with `app/retrieval/normalize.py`.
+- Prompt changes = new versioned file; never edit a released prompt.
+- Unit tests: no network; use FakeLLM / FakeEmbedder / FakeMainBackend; respx for HTTP.
