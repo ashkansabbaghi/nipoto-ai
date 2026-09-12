@@ -1,0 +1,19 @@
+{
+  "conversation": {
+    "id": "c_2002",
+    "userId": "u_77",
+    "status": "opened",
+    "handledBy": "staff",
+    "title": "درخواست بازگشت وجه",
+    "createdAt": "2026-09-11T10:00:00Z",
+    "updatedAt": "2026-09-11T10:05:00Z"
+  },
+  "messages": [
+    {
+      "id": "m_10",
+      "authorKind": "user",
+      "text": "می‌خوام پولم رو پس بگیرم",
+      "sentAt": "2026-09-11T10:00:00Z"
+    }
+  ]
+}

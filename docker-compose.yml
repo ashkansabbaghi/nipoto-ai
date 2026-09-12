@@ -3,6 +3,26 @@
 # weights into registry.local:80 and set EMBEDDINGS_IMAGE / HF_ENDPOINT (see T0.5 notes).
 
 services:
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENV: development
+      LOG_JSON: "true"
+      DATABASE_URL: postgresql+asyncpg://nipoto:nipoto@db:5432/nipoto_ai
+      EMBEDDINGS_BASE_URL: http://embeddings/v1
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "8080:8080"
+    # Migrations are applied explicitly (`make migrate`), never on container start:
+    # a restart loop must not run DDL.
+    profiles: ["app"]
+
   db:
     image: docker.io/pgvector/pgvector:pg16
     environment:

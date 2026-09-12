@@ -1,0 +1,131 @@
+# CI for nipoto-ai (T1.6). The registry and docker-dind pattern follows
+# front-end/staff/.gitlab-ci.yml; the python side is specific to this service.
+
+include:
+  - project: "nipoto/ci-templates"
+    ref: main
+    file: "/osv-scan.yml"
+
+stages:
+  - lint
+  - test
+  - eval
+  - build
+
+variables:
+  # Mirror these into registry.local:80 if ghcr.io / docker.io are blocked or slow (T0.5).
+  UV_IMAGE: ghcr.io/astral-sh/uv:python3.13-bookworm-slim
+  PGVECTOR_IMAGE: docker.io/pgvector/pgvector:pg16
+  CI_REGISTRY_IMAGE: registry.local:80/nipoto/service/nipoto-ai
+  UV_CACHE_DIR: .uv-cache
+  UV_LINK_MODE: copy
+
+.python:
+  image: $UV_IMAGE
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache
+  before_script:
+    - uv sync --locked
+  after_script:
+    - uv cache prune --ci
+
+lint:
+  extends: .python
+  stage: lint
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+
+contract:
+  extends: .python
+  stage: lint
+  script:
+    # The contract handed to the backend team (D7) must stay valid.
+    - uv run openapi-spec-validator contracts/main-backend.openapi.yaml
+
+test:
+  extends: .python
+  stage: test
+  services:
+    - name: $PGVECTOR_IMAGE
+      alias: db
+  variables:
+    POSTGRES_USER: nipoto
+    POSTGRES_PASSWORD: nipoto
+    POSTGRES_DB: nipoto_ai
+    # Tests marked `db` run here; without this they would silently skip.
+    DATABASE_URL: postgresql+asyncpg://nipoto:nipoto@db:5432/nipoto_ai
+    LLM_PROVIDER: fake
+    MAIN_BACKEND: fake
+  script:
+    - uv run pytest -q
+
+# Costs money: it calls the real provider. Manual, and only offered when something that
+# can change answer quality has changed.
+eval:
+  extends: .python
+  stage: eval
+  when: manual
+  allow_failure: true
+  variables:
+    LLM_PROVIDER: openai_compat
+  script:
+    - uv run python evals/run_retrieval.py
+    - uv run python evals/run_answers.py
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - evals/reports/
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - app/pipeline/prompts/**/*
+        - config/routes.yaml
+        - app/retrieval/**/*
+      when: manual
+      allow_failure: true
+    - when: never
+
+build:
+  stage: build
+  image: registry.local:80/nipoto/docker-image/docker-dind
+  services:
+    - name: registry.local:80/nipoto/docker-image/docker-dind
+      alias: docker
+      command:
+        - "--insecure-registry=registry.local:80"
+  variables:
+    DOCKER_HOST: tcp://docker:2375
+    DOCKER_DRIVER: overlay2
+    DOCKER_TLS_CERTDIR: ""
+    VERSION_TAG: $CI_REGISTRY_IMAGE:$CI_COMMIT_TAG
+    LATEST_TAG: $CI_REGISTRY_IMAGE:latest
+  before_script:
+    - until docker info; do sleep 1; done
+  script:
+    - echo "CI_REGISTRY_IMAGE=$CI_REGISTRY_IMAGE"
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASSWORD $REGISTRY_ADDR
+    - docker build --pull --network host --cache-from $LATEST_TAG -t $VERSION_TAG -t $LATEST_TAG .
+    - docker push --all-tags $CI_REGISTRY_IMAGE
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# On a merge request the image is built but not tagged as latest, so a broken MR cannot
+# become the deployed image.
+build_mr:
+  extends: build
+  variables:
+    VERSION_TAG: $CI_REGISTRY_IMAGE:mr-$CI_MERGE_REQUEST_IID
+  script:
+    - docker login -u $REGISTRY_USER -p $REGISTRY_PASSWORD $REGISTRY_ADDR
+    - docker build --pull --network host --cache-from $LATEST_TAG -t $VERSION_TAG .
+    - docker push $VERSION_TAG
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true

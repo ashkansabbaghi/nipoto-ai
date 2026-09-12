@@ -1,0 +1,45 @@
+# Model routes (§10.3). Switching provider or model is a config change, never a code
+# change (AI-5). `${VAR}` is substituted from the environment at load time.
+
+providers:
+  main:
+    base_url: "${LLM_BASE_URL}"
+    api_key: "${LLM_API_KEY}"
+
+routes:
+  draft.generate:
+    provider: main
+    model: "${CHAT_MODEL}"
+    max_tokens: 600
+    temperature: 0.3
+    timeout_s: 30
+  auto.generate:
+    provider: main
+    model: "${CHAT_MODEL}"
+    max_tokens: 400
+    temperature: 0.2
+    timeout_s: 25
+  # A little more room than a bare classification: the router also writes search_query (§9.6).
+  router.classify:
+    provider: main
+    model: "${SMALL_MODEL}"
+    max_tokens: 120
+    temperature: 0
+    timeout_s: 5
+
+embedding:
+  model: "BAAI/bge-m3"
+  device: "cpu"
+  dim: 1024
+
+reranker:
+  model: "BAAI/bge-reranker-v2-m3"
+  enabled: false
+
+# Retrieval thresholds (§9.9). Placeholders until T2.7 sweeps them on the golden set.
+thresholds:
+  t_low: 0.35
+  t_high: 0.55
+
+# USD per 1M tokens, used for the cost column of the audit row (§11.3).
+pricing: {}

@@ -6,7 +6,7 @@ ROLE ?= staff
 SUB  ?= u1
 FILE ?= data/kb/nipoto_kb.json
 
-.PHONY: help install lint fmt test up down logs migrate run keys token kb-import \
+.PHONY: help install lint fmt test up up-app down logs migrate revision run keys token kb-import \
         eval-retrieval eval-answers shadow-run check-provider contract-lint
 
 help:  ## List targets
@@ -26,8 +26,11 @@ fmt:  ## Auto-fix lint and format
 test:  ## Unit tests (no network). DB tests run only when DATABASE_URL is reachable
 	$(RUN) pytest
 
-up:  ## Start postgres + embeddings sidecar (+ app)
+up:  ## Start postgres + embeddings sidecar
 	$(COMPOSE) up -d
+
+up-app:  ## Start the whole stack including the app container
+	$(COMPOSE) --profile app up -d --build
 
 down:  ## Stop the compose stack
 	$(COMPOSE) down
@@ -37,6 +40,9 @@ logs:  ## Follow compose logs
 
 migrate:  ## Apply DB migrations
 	$(RUN) alembic upgrade head
+
+revision:  ## Autogenerate a migration: make revision M="add x"
+	$(RUN) alembic revision --autogenerate -m "$(M)"
 
 run:  ## Run the API locally with reload
 	$(RUN) uvicorn app.main:app --reload --port 8080

@@ -4,7 +4,7 @@
 > مجری: یک نفر با کمک Claude/Cursor. هر تسک خودکفاست و مستقیم قابل دادن به agent است.
 > تاریخ: ۱۴۰۵/۰۶/۲۰ (2026-09-11). وضعیت هر تسک در جدول §۴ به‌روز می‌شود.
 >
-> 📍 **جای فعلی:** M0. T0.1 و T0.2 ✅؛ T0.3 تا T0.5 🟡 (منتظر کلید API، جلسه با بک‌اند، و دانلود مدل embedding). M1 به بعد ☐.
+> 📍 **جای فعلی:** M1. T0.1، T0.2، T1.1، T1.2، T1.4 و T1.5 ✅؛ T1.6 🟡 (فایل نوشته شد، منتظر اولین MR)؛ T1.3 🟡 (کد کامل، منتظر دسترسی docker برای اجرای واقعی)؛ T0.3 تا T0.5 🟡 (منتظر کلید API، جلسه با بک‌اند، و دانلود مدل embedding). T2.1 و T2.2 ✅. T2.3 (Embedder) تسک بعدی است.
 
 ---
 
@@ -78,16 +78,16 @@ CLAUDE.md و بخش‌های ذکرشده از AI-SERVICE.fa.md را بخوان.
 | T0.3 | اعتبارسنجی provider و انتخاب مدل | 0.5 | — | 🟡 اسکریپت آماده؛ منتظر کلید API |
 | T0.4 | قرارداد OpenAPI بک‌اند | 0.5 | — | 🟡 فایل نوشته و معتبر؛ منتظر جلسه با بک‌اند |
 | T0.5 | sidecar embedding | 0.5 | — | 🟡 compose آماده؛ در حال دانلود مدل و اندازه‌گیری |
-| **M1** | **اسکلت** | | | |
-| T1.1 | FastAPI، کانفیگ، لاگ، خطا، health | 1 | T0.1 | ☐ |
-| T1.2 | احراز هویت JWT و مجوزدهی | 1 | T1.1 | ☐ |
-| T1.3 | docker-compose، Postgres + pgvector، Alembic | 1 | T1.1 | ☐ |
-| T1.4 | `policy.yaml`، `routes.yaml`، جدول `settings` | 0.5 | T1.3 | ☐ |
-| T1.5 | لایه‌ی connector (fake و http) | 1 | T1.1، T0.4 | ☐ |
-| T1.6 | CI در GitLab | 0.5 | T1.3 | ☐ |
-| **M2** | **دانش و جستجو** | | | |
-| T2.1 | نرمال‌سازی فارسی | 0.5 | T0.1 | ☐ |
-| T2.2 | پاک‌سازی و chunking | 1 | T2.1 | ☐ |
+| **M1** | **اسکلت** | | | 🟡 کد کامل؛ منتظر اجرای واقعی (docker و pipeline) |
+| T1.1 | FastAPI، کانفیگ، لاگ، خطا، health | 1 | T0.1 | ✅ |
+| T1.2 | احراز هویت JWT و مجوزدهی | 1 | T1.1 | ✅ |
+| T1.3 | docker-compose، Postgres + pgvector، Alembic | 1 | T1.1 | 🟡 |
+| T1.4 | `policy.yaml`، `routes.yaml`، جدول `settings` | 0.5 | T1.3 | ✅ |
+| T1.5 | لایه‌ی connector (fake و http) | 1 | T1.1، T0.4 | ✅ |
+| T1.6 | CI در GitLab | 0.5 | T1.3 | 🟡 |
+| **M2** | **دانش و جستجو** | | | 🟡 **در حال انجام** |
+| T2.1 | نرمال‌سازی فارسی | 0.5 | T0.1 | ✅ |
+| T2.2 | پاک‌سازی و chunking | 1 | T2.1 | ✅ |
 | T2.3 | Embedder | 0.5 | T0.5 | ☐ |
 | T2.4 | ingest و `admin/kb/import` | 1 | T1.3، T2.2، T2.3 | ☐ |
 | T2.5 | جستجو و `POST /v1/search` | 1 | T2.4، T1.2 | ☐ |
@@ -221,19 +221,19 @@ service-ai-support/
 
 ### M1 — اسکلت
 
-#### T1.1 FastAPI، کانفیگ، لاگ، خطا، health
-- **فایل‌ها:** `app/main.py`، `app/core/{config,errors,logging}.py`، `app/api/health.py`
+#### T1.1 FastAPI، کانفیگ، لاگ، خطا، health ✅
+- **فایل‌ها:** `app/main.py`، `app/core/{config,errors,logging,middleware}.py`، `app/api/health.py`، `tests/{conftest,test_health,test_errors}.py`
 - **کار:**
   - `pydantic-settings`
   - `structlog` با خروجی JSON و `request_id` در هر لاگ
   - خطای `application/problem+json` با فیلد `code` پایدار
   - `GET /v1/health` و `GET /v1/ready`
   - CORS با allowlist از env
-- **پذیرش:** تست: health برابر 200؛ مسیر ناموجود `404` با `problem+json`؛ `/openapi.json` ساخته می‌شود.
+- **پذیرش:** ✅ ۲۰ تست سبز: health و ready برابر 200؛ مسیر ناموجود `404` با `problem+json` و `code` پایدار؛ `/openapi.json` ساخته می‌شود؛ `X-Request-Id` در پاسخ و در هر لاگ؛ CORS فقط allowlist؛ `/docs` در production برابر 404؛ خطای مدیریت‌نشده جزئیات داخلی را لو نمی‌دهد.
 - **سند:** §۵.۱
 
-#### T1.2 احراز هویت JWT و مجوزدهی
-- **فایل‌ها:** `app/core/{auth,actor}.py`، `scripts/{gen_dev_keys,mint_token}.py`
+#### T1.2 احراز هویت JWT و مجوزدهی ✅
+- **فایل‌ها:** `app/core/{auth,actor}.py`، `scripts/{gen_dev_keys,mint_token}.py`، `tests/test_auth.py`
 - **کار:**
   - RS256 با کلید عمومی dev از env، یا `JWKS_URL` با کش (از `PyJWKClient`).
   - بررسی `aud=nipoto-ai`، `exp`، `sub` و `role`.
@@ -241,28 +241,37 @@ service-ai-support/
   - dependency `require_roles(...)` طبق ماتریس §۶.۳.
   - `make token ROLE=staff SUB=u1`.
 - **پذیرش:**
-  - تست برای: بدون توکن، امضای غلط، منقضی، و `aud` غلط، همه `401`؛ نقش غلط `403`.
-  - `user_id` در هیچ کجای کد از body خوانده نمی‌شود (بررسی در review).
+  - ✅ ۲۳ تست: بدون توکن، scheme غیر Bearer، امضای غلط، منقضی، `aud` غلط، `alg: none`، نقش ناشناخته و بدون `sub` همه `401` با `problem+json`؛ ماتریس §۶.۳ به‌صورت parametrize برای هر پنج نقش، نقش غیرمجاز `403`.
+  - ✅ بدون کلید عمومی و بدون JWKS، درخواست fail-closed است (500، نه 200). JWKS بر فایل PEM اولویت دارد.
+  - ✅ `user_id` در هیچ کجای کد از body خوانده نمی‌شود — تست نگهبان در `tests/test_repo_layout.py`.
 - **سند:** §۶
 
-#### T1.3 docker-compose، Postgres + pgvector، Alembic
-- **فایل‌ها:** `docker-compose.yml` (app، `pgvector/pgvector:pg16`، embeddings)، `Dockerfile`، `app/db/{models,session}.py`، `migrations/`
+#### T1.3 docker-compose، Postgres + pgvector، Alembic 🟡
+- **فایل‌ها:** `docker-compose.yml` (app، `pgvector/pgvector:pg16`، embeddings)، `Dockerfile`، `alembic.ini`، `app/db/{models,session}.py`، `migrations/{env.py,versions/0001_initial_schema.py}`، `tests/test_db.py`
 - **کار:**
   - SQLAlchemy 2 async.
   - migration اول با همه‌ی جداول §۱۳ سند: `kb_documents`، `kb_chunks` (ستون `vector(1024)`)، `kb_gaps`، `ai_requests` (به‌علاوه‌ی ستون `shadow bool`)، `reply_keys` با unique روی (`conversation_id`، `trigger_message_id`)، `ai_feedback`، `settings`، `usage_daily`.
-- **پذیرش:** `make up` و بعد `alembic upgrade head` جداول را می‌سازد، و `/v1/ready` برابر 200 است.
+- **پذیرش:**
+  - ✅ هر هشت جدول §۱۳ در `app/db/models.py` و در migration `0001` هستند؛ `kb_chunks.embedding` برابر `vector(1024)`، `reply_keys` با unique روی (`conversation_id`، `trigger_message_id`)، `ai_requests.shadow` موجود.
+  - ✅ migration در حالت offline (`alembic upgrade head --sql`) بدون خطا رندر می‌شود: ۹ `CREATE TABLE` (۸ جدول به‌علاوه‌ی `alembic_version`)، افزونه‌ی `vector`، ایندکس HNSW و مقدار اولیه‌ی `auto_mode=shadow` (D9).
+  - ✅ `/v1/ready` fail-closed است: بدون DB برابر `503`، و با DB زنده `200` (تست `@pytest.mark.db`).
+  - 🟡 اجرای واقعی `make up` و `make migrate` روی این ماشین ممکن نبود: کاربر در گروه `docker` نیست (`permission denied` روی سوکت). بعد از `sudo usermod -aG docker $USER` و ورود دوباره، تست‌های `db` خودشان اجرا می‌شوند.
 - **سند:** §۱۳
 
-#### T1.4 `policy.yaml`، `routes.yaml`، جدول `settings`
-- **فایل‌ها:** `config/policy.yaml`، `config/routes.yaml`، `app/core/config.py`، `app/db/repositories/settings.py`
+#### T1.4 `policy.yaml`، `routes.yaml`، جدول `settings` ✅
+- **فایل‌ها:** `config/{policy,routes}.yaml`، `app/core/{policy,config}.py`، `app/db/repositories/settings.py`، `tests/{test_policy_config,test_settings_repo}.py`
 - **کار:**
   - مدل pydantic برای policy (§۱۳) و routes (§۱۰.۳)؛ `routes.yaml` قیمت هر مدل را هم دارد.
   - اعتبارسنجی هنگام startup.
   - `settings.get("auto_mode")` با کش کوتاه؛ پیش‌فرض `shadow`.
-- **پذیرش:** policy نامعتبر، startup را با پیام روشن متوقف می‌کند. تغییر `auto_mode` در DB بدون ری‌استارت اعمال می‌شود.
+- **پذیرش:**
+  - ✅ policy نامعتبر startup را با `ConfigError` و پیام روشن متوقف می‌کند: کلید جاافتاده، کلید ناشناخته (`extra="forbid"`، تا یک تایپو یک کنترل را بی‌صدا خاموش نکند)، YAML خراب، بودجه‌ی صفر، آستانه‌های وارونه، و route با provider ناشناخته.
+  - ✅ تغییر `auto_mode` در DB بدون ری‌استارت اعمال می‌شود (کش ۱۰ ثانیه‌ای، `set` کش را باطل می‌کند) — تست `@pytest.mark.db`.
+  - ✅ اگر DB در دسترس نباشد، `auto_mode` به پیش‌فرض امن `shadow` برمی‌گردد و سرویس بالا می‌ماند (AI-1).
+  - ✅ جای‌گذاری `${VAR}` بازگشتی است؛ نبودن `CHAT_MODEL` فقط وقتی `LLM_PROVIDER != fake` است startup را متوقف می‌کند.
 
-#### T1.5 لایه‌ی connector
-- **فایل‌ها:** `app/connectors/{base,fake,http}.py`، `data/fixtures/conversations/_sample.json`
+#### T1.5 لایه‌ی connector ✅
+- **فایل‌ها:** `app/connectors/{__init__,base,mapping,fake,http}.py`، `data/fixtures/conversations/{_sample,_staff_owned}.json`، `tests/test_connector_{fake,http}.py`
 - **کار:**
   - `MainBackend` Protocol دقیقاً طبق §۷.۳ سند.
   - مدل‌های دامنه: `Conversation` با `owner_id` و `handled_by`، و `Message` با `author_kind`.
@@ -275,36 +284,51 @@ service-ai-support/
     - timeout ۲ ثانیه؛ retry فقط برای GET.
   - انتخاب با env: `MAIN_BACKEND=fake|http`.
 - **پذیرش:**
-  - تست: user به مکالمه‌ی دیگری دسترسی ندارد (`conversation_not_found`).
-  - `HttpMainBackend` با `respx` تست شده.
+  - ✅ user به مکالمه‌ی دیگری دسترسی ندارد: `conversation_not_found` (نه `forbidden`، تا وجود مکالمه لو نرود). مهمان هم همین قاعده را دارد؛ staff همه را می‌بیند.
+  - ✅ `HttpMainBackend` با `respx` تست شده (۱۷ تست): مپ شدن قرارداد، هدرهای «به نمایندگی از»، `403` و `404` هر دو `conversation_not_found`، timeout و خطای شبکه `upstream_unavailable`، retry روی GET و **نبود retry روی POST**، `Idempotency-Key`، و `me/orders` بدون پارامتر `userId`.
+  - ✅ `FakeMainBackend` idempotent است، `handoff` مقدار `handled_by` را عوض می‌کند، و شمارنده‌ی فراخوانی دارد (پایه‌ی تست «در `shadow` چیزی در بک‌اند نوشته نمی‌شود» در T6.3).
+  - ✅ `BrokenMainBackend` برای تست رفتار AI-1 اضافه شد.
+  - ✅ تست نگهبان مرز ماژول: هیچ ماژولی بیرون از `app/connectors/` برای بک‌اند `httpx` import نمی‌کند.
 - **سند:** §۷
 
-#### T1.6 CI در GitLab
-- **فایل‌ها:** `.gitlab-ci.yml`
+#### T1.6 CI در GitLab 🟡
+- **فایل‌ها:** `.gitlab-ci.yml`، `tests/test_ci_config.py`
 - **کار:**
   - مرحله‌های lint، test (با سرویس Postgres) و build image.
   - الگوی registry از `../staff/.gitlab-ci.yml` گرفته شود.
   - job دستی `eval` (هزینه دارد) با `rules: changes` روی `app/pipeline/prompts/**`، `config/routes.yaml` و `app/retrieval/**`.
-- **پذیرش:** pipeline روی MR سبز است.
+- **پذیرش:**
+  - ✅ مرحله‌ها: `lint` (ruff check و format، به‌علاوه‌ی job جدای `contract` برای اعتبارسنجی قرارداد بک‌اند)، `test` (با سرویس pgvector و `DATABASE_URL`، تا تست‌های `db` در CI واقعاً اجرا شوند نه skip)، `eval` (دستی)، و `build`.
+  - ✅ الگوی registry و docker-dind از `front-end/staff/.gitlab-ci.yml` گرفته شد؛ image در `registry.local:80/nipoto/service/nipoto-ai`. build روی tag تگ `latest` می‌زند، ولی build روی MR فقط `mr-<iid>` — یک MR خراب نمی‌تواند image مستقر شده را عوض کند.
+  - ✅ job دستی `eval` با `rules: changes` روی `app/pipeline/prompts/**`، `config/routes.yaml` و `app/retrieval/**`؛ هزینه دارد پس هرگز خودکار اجرا نمی‌شود. گزارش‌ها artifact می‌شوند.
+  - ✅ تست محلی `tests/test_ci_config.py` این قواعد را قفل می‌کند (stageها، fake بودن provider در تست، دستی بودن eval، و اینکه MR تگ `latest` نمی‌زند).
+  - 🟡 «pipeline روی MR سبز است» هنوز تأیید نشده: به یک push و MR واقعی روی GitLab نیاز دارد. `uv sync --locked` محلی سبز است.
 
 ### M2 — دانش و جستجو
 
-#### T2.1 نرمال‌سازی فارسی
+#### T2.1 نرمال‌سازی فارسی ✅
 - **فایل‌ها:** `app/retrieval/normalize.py`، `tests/test_normalize.py`
 - **کار:**
   - تابع `normalize()` طبق جدول §۹.۳ سند: ی و ک عربی، ارقام فارسی و عربی به لاتین، نیم‌فاصله‌ی «می/نمی» و «ها/های/تر/ترین»، حذف کشیده و اعراب، و یکی کردن فاصله‌ها و کاراکترهای کنترلی.
   - ingest و جستجو هر دو **همین** تابع را صدا می‌زنند.
-- **پذیرش:** تست جدول‌محور با همه‌ی ردیف‌های §۹.۳ و حداقل ۲۰ جفت «قبل / بعد».
+- **پذیرش:** ✅ ۹۱ تست. جدول با ۳۵ جفت «قبل / بعد» که همه‌ی ردیف‌های §۹.۳ را پوشش می‌دهد، به‌علاوه‌ی idempotent بودن، حفظ خط جدید (لازم برای chunking در §۹.۴)، و دست‌نخوردن متن لاتین و URL.
+- **نکته‌ی پیاده‌سازی (D10):** برای نیم‌فاصله‌ی «می/نمی» چسبیده، به‌جای یک قاعده‌ی کور، فهرست محدود `VERB_STEMS` استفاده شد؛ قاعده‌ی کور «میز»، «میدان» و «میهن» را خراب می‌کرد. تست صریح برای هر دو حالت هست. شکل چسبیده‌ی پسوندها («کتابها») بدون واژگان قابل تشخیص نیست و دست‌نخورده می‌ماند — اگر در ارزیابی T2.7 اثر داشت، بازبینی می‌شود.
 
-#### T2.2 پاک‌سازی و chunking
-- **فایل‌ها:** `app/retrieval/{clean,chunk}.py`
+#### T2.2 پاک‌سازی و chunking ✅
+- **فایل‌ها:** `app/retrieval/{clean,chunk}.py`، `tests/test_{clean,chunk}.py`
 - **کار:**
   - HTML به متن تبدیل شود و تیتر و لیست به‌صورت markdown بمانند.
   - **FAQ:** یک chunk به شکل `پرسش: … / پاسخ: …`؛ بیش از ۸۰۰ توکن بر اساس پاراگراف شکسته می‌شود و پرسش در همه‌ی تکه‌ها تکرار می‌شود.
   - **مستندات:** بر اساس h2 و h3؛ بیش از ۵۰۰ توکن بر اساس پاراگراف، با ۵۰ توکن هم‌پوشانی.
   - هر chunk با «عنوان › بخش» شروع می‌شود و metadata کامل دارد.
   - شمارش توکن تقریبی و قابل تنظیم است.
-- **پذیرش:** تست: FAQ کوتاه شکسته نمی‌شود؛ هیچ chunkی بدون پیشوند عنوان نیست.
+- **پذیرش:**
+  - ✅ ۸۹ تست. FAQ کوتاه هرگز شکسته نمی‌شود (حتی با ۶ پاراگراف)؛ FAQ بلند شکسته می‌شود و پرسش در همه‌ی تکه‌ها تکرار می‌شود.
+  - ✅ هیچ chunkی بدون پیشوند عنوان نیست — تست parametrize روی **هر ۴۵ آیتم واقعی** `data/kb/nipoto_kb.json` (۶۵ chunk).
+  - ✅ menu، footer، `script` و `style` حذف می‌شوند و به دانش راه پیدا نمی‌کنند.
+  - ✅ metadata کامل §۹.۴ روی هر chunk.
+- **نکته‌ی پیاده‌سازی:** پاک‌سازی HTML با `html.parser` کتابخانه‌ی استاندارد است، نه یک وابستگی جدید؛ بدنه‌های KB قطعه‌های کوچک و سالم‌اند.
+- **یک باگ که تست گرفت:** آستانه‌ی «chunk خیلی کوتاه» یک سند کوتاه را بی‌صدا از ایندکس حذف می‌کرد. حذف شد؛ رد کردن سند کوتاه کار اعتبارسنجی ingest با دلیل صریح است (§۹.۲ مرحله ۲، در T2.4).
 - **سند:** §۹.۴
 
 #### T2.3 Embedder

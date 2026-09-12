@@ -1,0 +1,31 @@
+{
+  "conversation": {
+    "id": "c_1001",
+    "userId": "u_55",
+    "status": "opened",
+    "handledBy": "assistant",
+    "title": "سوال درباره ارسال سفارش",
+    "createdAt": "2026-09-10T08:15:00Z",
+    "updatedAt": "2026-09-10T08:22:00Z"
+  },
+  "messages": [
+    {
+      "id": "m_1",
+      "authorKind": "user",
+      "text": "سلام، سفارشم کی میرسه؟",
+      "sentAt": "2026-09-10T08:15:00Z"
+    },
+    {
+      "id": "m_2",
+      "authorKind": "staff",
+      "text": "سلام. لطفاً شماره سفارش را بفرمایید.",
+      "sentAt": "2026-09-10T08:18:00Z"
+    },
+    {
+      "id": "m_3",
+      "authorKind": "user",
+      "text": "شماره سفارش ۱۲۳۴۵",
+      "sentAt": "2026-09-10T08:22:00Z"
+    }
+  ]
+}

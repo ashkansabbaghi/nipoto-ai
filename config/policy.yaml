@@ -1,0 +1,32 @@
+# Server-side policy (§13). Enforced in code, not only in prompts.
+# Every change to this file goes through a merge request and review.
+
+company_name: "نیپوتو"
+persona: "رسمی ولی گرم؛ کوتاه و روشن؛ بدون ایموجی."
+
+# Topics the assistant never answers; it hands off instead (§8.3).
+deny_topics:
+  - "قیمت و تخفیف"
+  - "مسائل حقوقی"
+  - "بازگشت وجه"
+  - "تغییر اطلاعات حساب"
+
+# Only https links to these hosts survive post-processing (§8.3).
+link_allowlist:
+  - "nipoto.com"
+  - "help.nipoto.com"
+
+contact:
+  phone: "۰۲۱-۰۰۰۰۰۰۰۰"
+  hours: "شنبه تا چهارشنبه ۹ تا ۱۷"
+
+limits:
+  turns_per_conversation: 6
+  daily_budget_usd: 20
+  requests_per_minute_per_actor: 20
+  requests_per_minute_per_ip: 60
+
+# Answer language. A first sentence that is not Persian triggers one retry, then handoff.
+language:
+  expected: "fa"
+  min_persian_ratio: 0.5
